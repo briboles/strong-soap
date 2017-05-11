@@ -36,7 +36,7 @@ class Server extends Base {
       server.removeAllListeners('request');
       server.addListener('request', function(req, res) {
         if (typeof self.authorizeConnection === 'function') {
-          if (!self.authorizeConnection(req.connection.remoteAddress)) {
+          if (!self.authorizeConnection(req)) {
             res.end();
             return;
           }
