@@ -1,4 +1,5 @@
-var g = require('../../globalize');
+'use strict';
+
 var WSDLElement = require('./wsdlElement');
 var assert = require('assert');
 var Schema = require('../xsd/schema');
@@ -17,8 +18,9 @@ class Types extends WSDLElement {
     if (!this.schemas.hasOwnProperty(targetNamespace)) {
       this.schemas[targetNamespace] = child;
     } else {
-      g.error('Target namespace "%s" already in use by another Schema',
-        targetNamespace);
+      // types might have multiple schemas with the same target namespace,
+      // including no target namespace
+      this.schemas[targetNamespace].merge(child, true);
     }
   };
 }

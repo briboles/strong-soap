@@ -1,3 +1,5 @@
+'use strict';
+
 var xmlBuilder = require('xmlbuilder');
 var sax = require('sax');
 var stream = require('stream');
@@ -15,7 +17,8 @@ var Set = helper.Set;
 
 
 class XMLHandler {
-  constructor(options) {
+  constructor(schemas, options) {
+    this.schemas = schemas || {};
     this.options = options || {};
     this.options.valueKey = this.options.valueKey || '$value';
     this.options.xmlKey = this.options.xmlKey || '$xml';
@@ -117,19 +120,20 @@ class XMLHandler {
         element.attribute(xmlns, descriptor.qname.nsURI);
       }
 
+      if (val == null) {
+        if (descriptor.isNillable) {
+          // Set xsi:nil = true
+          declareNamespace(nsContext, element, 'xsi', helper.namespaces.xsi);
+          element.attribute('xsi:nil', true);
+        }
+      }
+
       if (isSimple) {
         if (attrs !== null) {
           // add each field in $attributes object as xml element attribute
           if (typeof attrs === "object") {
             //add $attributes. Attribute can be an attribute defined in XSD or an xsi:type
             this.addAttributes(element, nsContext, descriptor, val, attrs);
-          }
-        }
-        if (val == null) {
-          if (descriptor.isNillable) {
-            // Set xsi:nil = true
-            declareNamespace(nsContext, element, 'xsi', helper.namespaces.xsi);
-            element.attribute('xsi:nil', true);
           }
         }
         if (nameSpaceContextCreated) {
@@ -189,6 +193,60 @@ class XMLHandler {
   }
 
   /**
+   * Check if the attributes have xsi:type and return the xsi type descriptor if exists
+   * @param {*} descriptor The current descriptor
+   * @param {*} attrs An object of attribute values
+   */
+  getXsiType(descriptor, attrs) {
+    var xsiTypeDescriptor;
+    if (attrs != null && typeof attrs === "object") {
+      for (let p in attrs) {
+        let child = attrs[p];
+        // if field is $xsiType add xsi:type attribute
+        if (p === this.options.xsiTypeKey) {
+          let xsiType;
+          if (typeof child === "object" && typeof child.type !== "undefined") {
+            // $xsiType has two fields - type, xmlns
+            xsiType = QName.parse(child.type, child.xmlns);
+          } else {
+            xsiType = QName.parse(child);
+          }
+          var schema = this.schemas[xsiType.nsURI];
+          if (schema) {
+            var xsiTypeInfo =
+              schema.complexTypes[xsiType.name] ||
+              schema.simpleTypes[xsiType.name];
+            // The type might not be described  
+            // describe() takes wsdl definitions  
+            xsiTypeDescriptor = xsiTypeInfo && xsiTypeInfo.describe({schemas: this.schemas});
+          }
+          break;
+        }
+      }
+    }
+    return xsiTypeDescriptor;
+  }
+
+  _sortKeys(val, elementOrder) {
+    function compare(n1, n2, order) {
+      let i1 = order.indexOf(n1);
+      if (i1 === -1) i1 = order.length;
+      let i2 = order.indexOf(n2);
+      if (i2 === -1) i2 = order.length;
+      return i1 - i2;
+    }
+    const keys = Object.keys(val);
+    var names = [].concat(keys).sort((n1, n2) => {
+      let result = compare(n1, n2, elementOrder);
+      if (result ===0) {
+        result = compare(n1, n2, keys);
+      }
+      return result;
+    });
+    return names;
+  }
+
+  /**
    * Map a JSON object into an XML type
    * @param {XMLElement} node The root node
    * @param {NamespaceContext} nsContext Namespace context
@@ -203,12 +261,18 @@ class XMLHandler {
       return node;
     }
 
+    // First try to see if a subtype should be used
+    var xsiType = this.getXsiType(descriptor, attrs);
+    descriptor = xsiType || descriptor;
+
     var elements = {}, attributes = {};
+    var elementOrder = [];
     if (descriptor != null) {
       for (let i = 0, n = descriptor.elements.length; i < n; i++) {
         let elementDescriptor = descriptor.elements[i];
         let elementName = elementDescriptor.qname.name;
         elements[elementName] = elementDescriptor;
+        elementOrder.push(elementName);
       }
     }
 
@@ -222,7 +286,8 @@ class XMLHandler {
 
     // handle later if value is an array 
     if (!Array.isArray(val)) {
-      for (let p in val) {
+      const names = this._sortKeys(val, elementOrder);
+      for (let p of names) {
         if (p === this.options.attributesKey)
           continue;
 	      let child = val[p];
@@ -246,7 +311,12 @@ class XMLHandler {
   }
 
   addAttributes(node, nsContext, descriptor, val, attrs) {
-    var elements = {}, attributes = {};
+    var attrDescriptors = (descriptor && descriptor.attributes) || [];
+    var attributes = {};
+    for (var i = 0; i < attrDescriptors.length; i++) {
+      var qname = attrDescriptors[i].qname;
+      attributes[qname.name] = attrDescriptors[i];
+    }
     if (attrs != null && typeof attrs === 'object') {
       for (let p in attrs) {
         let child = attrs[p];
@@ -604,7 +674,7 @@ class XMLHandler {
     var merge = function(href, obj) {
       for (var j in obj) {
         if (obj.hasOwnProperty(j)) {
-          href.obj[j] = obj[j];
+          href.object[j] = obj[j];
         }
       }
     };

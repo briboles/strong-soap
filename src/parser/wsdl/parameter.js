@@ -1,3 +1,5 @@
+'use strict';
+
 var WSDLElement = require('./wsdlElement');
 var QName = require('../qname');
 var debug = require('debug')('strong-soap:wsdl:parameter');
@@ -18,7 +20,8 @@ class Parameter extends WSDLElement {
       this.headers = this.headers || [];
       // soap:header
       this.headers.push(child);
-    } else if (child.name === 'fault') { //Revisit. Never gets executed.
+    } else if (child.name === 'fault') {
+      //Revisit. Never gets executed.
       this.fault = child;
     }
   }
@@ -29,6 +32,10 @@ class Parameter extends WSDLElement {
       // Resolve $message
       var messageName = QName.parse(this.$message).name;
       var message = definitions.messages[messageName];
+      if (!message) {
+        console.error('Unable to resolve message %s for', this.$message, this);
+        throw new Error('Unable to resolve message ' + this.$message);
+      }
       message.postProcess(definitions);
       this.message = message;
     }
@@ -87,6 +94,11 @@ class Parameter extends WSDLElement {
   }
 }
 
-Parameter.allowedChildren = ['body', 'SecuritySpecRef', 'documentation', 'header'];
+Parameter.allowedChildren = [
+  'body',
+  'SecuritySpecRef',
+  'documentation',
+  'header'
+];
 
 module.exports = Parameter;
